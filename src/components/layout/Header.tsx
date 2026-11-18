@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { 
   Menu, Search, Globe, Plus, Bell, ShieldCheck, 
-  Database, AlertTriangle, X, CheckCircle2 
+  Cloud, AlertTriangle, X, CheckCircle2, User
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useFarm } from '../../context/FarmContext';
-import { isSupabaseConfigured } from '../../services/supabase';
+import { isFirebaseConfigured } from '../../services/firebase';
 
 interface HeaderProps {
   onMenuClick: () => void;
@@ -13,7 +13,7 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({ onMenuClick, onOpenQuickAction }) => {
-  const { language, setLanguage, t } = useLanguage();
+  const { language, setLanguage } = useLanguage();
   const { settings, metrics } = useFarm();
   const [showNotifications, setShowNotifications] = useState(false);
 
@@ -59,7 +59,7 @@ export const Header: React.FC<HeaderProps> = ({ onMenuClick, onOpenQuickAction }
         </span>
       </div>
 
-      {/* Right controls: Language, Quick Actions, Database state, Profile */}
+      {/* Right controls: Language, Quick Actions, Database state, Owner Profile */}
       <div className="flex items-center space-x-2 sm:space-x-3">
         {/* Language Switcher */}
         <button
@@ -80,13 +80,13 @@ export const Header: React.FC<HeaderProps> = ({ onMenuClick, onOpenQuickAction }
           <span className="hidden sm:inline">{language === 'bn' ? 'দ্রুত এন্ট্রি' : 'Quick Action'}</span>
         </button>
 
-        {/* Database Status indicator */}
+        {/* Firebase Cloud Database Status indicator */}
         <div 
           className="hidden xl:flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium border bg-stone-50 border-stone-200 text-stone-600"
-          title={isSupabaseConfigured ? 'Connected to Supabase PostgreSQL' : 'Operating in Secure Local Persistence Mode'}
+          title={isFirebaseConfigured ? 'Connected to Firebase Firestore & Cloud Storage' : 'Operating in Secure Local Persistence Mode'}
         >
-          <Database size={13} className={isSupabaseConfigured ? 'text-emerald-600' : 'text-stone-400'} />
-          <span>{isSupabaseConfigured ? 'Supabase Sync' : 'Local Mode'}</span>
+          <Cloud size={13} className={isFirebaseConfigured ? 'text-amber-500' : 'text-stone-400'} />
+          <span>{isFirebaseConfigured ? 'Firebase Cloud' : 'Local Mode'}</span>
         </div>
 
         {/* Notification Bell */}
@@ -149,9 +149,22 @@ export const Header: React.FC<HeaderProps> = ({ onMenuClick, onOpenQuickAction }
           )}
         </div>
 
-        {/* User avatar */}
-        <div className="w-8 h-8 rounded-full bg-forest-800 text-white flex items-center justify-center font-bold text-xs ring-2 ring-forest-200">
-          TI
+        {/* Farm Manager Profile Badge (Direct Access Mode - No Login Barrier) */}
+        <div 
+          className="flex items-center space-x-2 pl-1.5 pr-3 py-1 rounded-2xl border border-stone-200 bg-stone-50/80 text-left"
+          title="Direct Farm Access Mode (Full Management Access)"
+        >
+          <div className="w-8 h-8 rounded-full bg-forest-800 text-white flex items-center justify-center font-bold text-xs ring-2 ring-forest-200">
+            TI
+          </div>
+          <div className="hidden sm:flex flex-col">
+            <span className="text-[11px] font-bold text-stone-800 leading-tight truncate max-w-[110px]">
+              {settings.ownerName || 'Farm Owner'}
+            </span>
+            <span className="text-[9px] font-semibold uppercase tracking-wider text-forest-700">
+              {language === 'bn' ? 'মালিক মোড' : 'Owner Access'}
+            </span>
+          </div>
         </div>
       </div>
     </header>

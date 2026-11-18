@@ -20,7 +20,7 @@ export type FarmSettings = {
   primaryBusinessModel: FarmBusinessModel;
   currency: string;
   createdDate: string;
-  supabaseConnected: boolean;
+  firebaseConnected: boolean;
 };
 
 export type Language = 'en' | 'bn';

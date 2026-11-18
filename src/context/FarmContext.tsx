@@ -9,7 +9,27 @@ import {
   INITIAL_BIOSECURITY
 } from '../data/initialFarmData';
 import { INITIAL_FEED_INVENTORY } from '../data/feedsData';
-import { storageHelper } from '../services/supabase';
+import { storageHelper, isFirebaseConfigured } from '../services/firebase';
+import {
+  saveCattleToFirestore,
+  deleteCattleFromFirestore,
+  saveHealthRecordToFirestore,
+  saveVaccinationToFirestore,
+  saveTransactionToFirestore,
+  deleteTransactionFromFirestore,
+  saveTaskToFirestore,
+  deleteTaskFromFirestore,
+  saveFeedInventoryToFirestore,
+  saveFarmSettingsToFirestore,
+  syncAllLocalDataToFirestore,
+  getCattleFromFirestore,
+  getHealthRecordsFromFirestore,
+  getVaccinationsFromFirestore,
+  getTransactionsFromFirestore,
+  getTasksFromFirestore,
+  getFeedInventoryFromFirestore,
+  getFarmSettingsFromFirestore
+} from '../services/firestoreService';
 
 interface DashboardMetrics {
   totalCattle: number;
@@ -56,6 +76,9 @@ interface FarmContextType {
   addFeedInventoryItem: (item: Omit<FeedInventoryItem, 'id'>) => void;
   metrics: DashboardMetrics;
   resetDemoData: () => void;
+  isCloudSyncing: boolean;
+  syncWithFirestore: () => Promise<{ success: boolean; message: string }>;
+  loadFromFirestore: () => Promise<{ success: boolean; message: string }>;
 }
 
 const FarmContext = createContext<FarmContextType | undefined>(undefined);
@@ -93,6 +116,8 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
     storageHelper.get('feed_inventory', INITIAL_FEED_INVENTORY)
   );
 
+  const [isCloudSyncing, setIsCloudSyncing] = useState(false);
+
   // Sync to local storage on changes
   useEffect(() => storageHelper.set('farm_settings', settings), [settings]);
   useEffect(() => storageHelper.set('cattle_list', cattleList), [cattleList]);
@@ -103,9 +128,33 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => storageHelper.set('daily_tasks', tasks), [tasks]);
   useEffect(() => storageHelper.set('feed_inventory', feedInventory), [feedInventory]);
 
+  // Attempt initial load from Firestore if credentials configured
+  useEffect(() => {
+    if (!isFirebaseConfigured) return;
+
+    const fetchCloudData = async () => {
+      try {
+        const cloudCattle = await getCattleFromFirestore();
+        if (cloudCattle && cloudCattle.length > 0) {
+          setCattleList(cloudCattle);
+        }
+        const cloudSettings = await getFarmSettingsFromFirestore();
+        if (cloudSettings) {
+          setSettings(cloudSettings);
+        }
+      } catch (e) {
+        console.warn('Initial Firestore fetch skipped or failed (using local data):', e);
+      }
+    };
+
+    fetchCloudData();
+  }, []);
+
   // CRUD actions
   const updateSettings = (newSettings: Partial<FarmSettings>) => {
-    setSettings(prev => ({ ...prev, ...newSettings }));
+    const updated = { ...settings, ...newSettings };
+    setSettings(updated);
+    saveFarmSettingsToFirestore(updated).catch(err => console.warn('Firestore settings save:', err));
   };
 
   const addCattle = (cattleData: Omit<Cattle, 'id' | 'createdDate' | 'updatedDate'>) => {
@@ -124,6 +173,7 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
       ]
     };
     setCattleList(prev => [newCattle, ...prev]);
+    saveCattleToFirestore(newCattle).catch(err => console.warn('Firestore cattle save:', err));
 
     // Record purchase transaction if purchase price is present
     if (cattleData.purchasePrice && cattleData.purchasePrice > 0) {
@@ -141,13 +191,21 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const updateCattle = (id: string, updates: Partial<Cattle>) => {
-    setCattleList(prev => prev.map(c => 
-      c.id === id ? { ...c, ...updates, updatedDate: new Date().toISOString().split('T')[0] } : c
-    ));
+    setCattleList(prev => {
+      const updated = prev.map(c => 
+        c.id === id ? { ...c, ...updates, updatedDate: new Date().toISOString().split('T')[0] } : c
+      );
+      const target = updated.find(c => c.id === id);
+      if (target) {
+        saveCattleToFirestore(target).catch(err => console.warn('Firestore cattle update:', err));
+      }
+      return updated;
+    });
   };
 
   const deleteCattle = (id: string) => {
     setCattleList(prev => prev.filter(c => c.id !== id));
+    deleteCattleFromFirestore(id).catch(err => console.warn('Firestore cattle delete:', err));
   };
 
   const addWeightRecord = (cattleId: string, weightKg: number, recordedDate: string, notes?: string) => {
@@ -158,18 +216,23 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
       recordedDate,
       notes
     };
-    setCattleList(prev => prev.map(c => {
-      if (c.id === cattleId) {
-        const history = c.weightHistory || [];
-        return {
-          ...c,
-          currentWeightKg: weightKg,
-          updatedDate: recordedDate,
-          weightHistory: [...history, record]
-        };
-      }
-      return c;
-    }));
+    setCattleList(prev => {
+      const updated = prev.map(c => {
+        if (c.id === cattleId) {
+          const history = c.weightHistory || [];
+          const updatedCattle = {
+            ...c,
+            currentWeightKg: weightKg,
+            updatedDate: recordedDate,
+            weightHistory: [...history, record]
+          };
+          saveCattleToFirestore(updatedCattle).catch(err => console.warn('Firestore weight update:', err));
+          return updatedCattle;
+        }
+        return c;
+      });
+      return updated;
+    });
   };
 
   const addHealthRecord = (record: Omit<HealthRecord, 'id'>) => {
@@ -178,21 +241,31 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
       id: `hr-${Date.now()}`
     };
     setHealthRecords(prev => [newRecord, ...prev]);
+    saveHealthRecordToFirestore(newRecord).catch(err => console.warn('Firestore health save:', err));
 
     // Update target cattle health status to under_treatment or under_observation
     setCattleList(prev => prev.map(c => {
       if (c.id === record.cattleId) {
-        return {
+        const updated = {
           ...c,
-          healthStatus: record.recoveryStatus === 'recovered' ? 'healthy' : 'under_treatment'
+          healthStatus: record.recoveryStatus === 'recovered' ? 'healthy' as const : 'under_treatment' as const
         };
+        saveCattleToFirestore(updated).catch(err => console.warn('Firestore cattle status sync:', err));
+        return updated;
       }
       return c;
     }));
   };
 
   const updateHealthRecord = (id: string, updates: Partial<HealthRecord>) => {
-    setHealthRecords(prev => prev.map(hr => hr.id === id ? { ...hr, ...updates } : hr));
+    setHealthRecords(prev => {
+      const updated = prev.map(hr => hr.id === id ? { ...hr, ...updates } : hr);
+      const target = updated.find(hr => hr.id === id);
+      if (target) {
+        saveHealthRecordToFirestore(target).catch(err => console.warn('Firestore health update:', err));
+      }
+      return updated;
+    });
   };
 
   const addVaccination = (record: Omit<VaccinationRecord, 'id'>) => {
@@ -201,20 +274,26 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
       id: `vax-${Date.now()}`
     };
     setVaccinations(prev => [newRecord, ...prev]);
+    saveVaccinationToFirestore(newRecord).catch(err => console.warn('Firestore vaccination save:', err));
   };
 
   const toggleVaccinationStatus = (id: string) => {
-    setVaccinations(prev => prev.map(v => {
-      if (v.id === id) {
-        const isDone = v.status === 'administered';
-        return {
-          ...v,
-          status: isDone ? 'scheduled' : 'administered',
-          administeredDate: isDone ? undefined : new Date().toISOString().split('T')[0]
-        };
-      }
-      return v;
-    }));
+    setVaccinations(prev => {
+      const updated = prev.map(v => {
+        if (v.id === id) {
+          const isDone = v.status === 'administered';
+          const updatedVax: VaccinationRecord = {
+            ...v,
+            status: isDone ? 'scheduled' : 'administered',
+            administeredDate: isDone ? undefined : new Date().toISOString().split('T')[0]
+          };
+          saveVaccinationToFirestore(updatedVax).catch(err => console.warn('Firestore vaccination toggle:', err));
+          return updatedVax;
+        }
+        return v;
+      });
+      return updated;
+    });
   };
 
   const addBiosecurityRecord = (record: Omit<BiosecurityRecord, 'id'>) => {
@@ -222,42 +301,63 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const addTransaction = (tx: Omit<FinancialTransaction, 'id'>) => {
-    setTransactions(prev => [{ ...tx, id: `tx-${Date.now()}` }, ...prev]);
+    const newTx: FinancialTransaction = { ...tx, id: `tx-${Date.now()}` };
+    setTransactions(prev => [newTx, ...prev]);
+    saveTransactionToFirestore(newTx).catch(err => console.warn('Firestore transaction save:', err));
   };
 
   const deleteTransaction = (id: string) => {
     setTransactions(prev => prev.filter(t => t.id !== id));
+    deleteTransactionFromFirestore(id).catch(err => console.warn('Firestore transaction delete:', err));
   };
 
   const addTask = (task: Omit<DailyTask, 'id'>) => {
-    setTasks(prev => [{ ...task, id: `task-${Date.now()}` }, ...prev]);
+    const newTask: DailyTask = { ...task, id: `task-${Date.now()}` };
+    setTasks(prev => [newTask, ...prev]);
+    saveTaskToFirestore(newTask).catch(err => console.warn('Firestore task save:', err));
   };
 
   const toggleTaskCompletion = (id: string) => {
-    setTasks(prev => prev.map(t => {
-      if (t.id === id) {
-        return {
-          ...t,
-          isCompleted: !t.isCompleted,
-          completedAt: !t.isCompleted ? new Date().toISOString() : undefined
-        };
-      }
-      return t;
-    }));
+    setTasks(prev => {
+      const updated = prev.map(t => {
+        if (t.id === id) {
+          const updatedTask: DailyTask = {
+            ...t,
+            isCompleted: !t.isCompleted,
+            completedAt: !t.isCompleted ? new Date().toISOString() : undefined
+          };
+          saveTaskToFirestore(updatedTask).catch(err => console.warn('Firestore task toggle:', err));
+          return updatedTask;
+        }
+        return t;
+      });
+      return updated;
+    });
   };
 
   const deleteTask = (id: string) => {
     setTasks(prev => prev.filter(t => t.id !== id));
+    deleteTaskFromFirestore(id).catch(err => console.warn('Firestore task delete:', err));
   };
 
   const updateFeedStock = (id: string, newStockKg: number) => {
-    setFeedInventory(prev => prev.map(item => 
-      item.id === id ? { ...item, currentStockKg: Math.max(0, newStockKg) } : item
-    ));
+    setFeedInventory(prev => {
+      const updated = prev.map(item => {
+        if (item.id === id) {
+          const updatedItem = { ...item, currentStockKg: Math.max(0, newStockKg) };
+          saveFeedInventoryToFirestore(updatedItem).catch(err => console.warn('Firestore feed update:', err));
+          return updatedItem;
+        }
+        return item;
+      });
+      return updated;
+    });
   };
 
   const addFeedInventoryItem = (item: Omit<FeedInventoryItem, 'id'>) => {
-    setFeedInventory(prev => [{ ...item, id: `inv-${Date.now()}` }, ...prev]);
+    const newItem: FeedInventoryItem = { ...item, id: `inv-${Date.now()}` };
+    setFeedInventory(prev => [newItem, ...prev]);
+    saveFeedInventoryToFirestore(newItem).catch(err => console.warn('Firestore feed save:', err));
   };
 
   const resetDemoData = () => {
@@ -269,6 +369,85 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setTransactions(INITIAL_TRANSACTIONS);
     setTasks(INITIAL_DAILY_TASKS);
     setFeedInventory(INITIAL_FEED_INVENTORY);
+  };
+
+  // Push all local data to Firestore
+  const syncWithFirestore = async (): Promise<{ success: boolean; message: string }> => {
+    if (!isFirebaseConfigured) {
+      return {
+        success: false,
+        message: 'Firebase is not configured in .env. Please configure your Firebase credentials first.'
+      };
+    }
+
+    try {
+      setIsCloudSyncing(true);
+      const res = await syncAllLocalDataToFirestore({
+        settings,
+        cattleList,
+        healthRecords,
+        vaccinations,
+        transactions,
+        tasks,
+        feedInventory
+      });
+
+      if (res.success) {
+        return {
+          success: true,
+          message: `Successfully synchronized ${res.count} records to Cloud Firestore.`
+        };
+      } else {
+        return {
+          success: false,
+          message: res.error || 'Sync failed.'
+        };
+      }
+    } catch (err: any) {
+      return { success: false, message: err.message || 'Sync failed.' };
+    } finally {
+      setIsCloudSyncing(false);
+    }
+  };
+
+  // Pull all data from Firestore down to local state
+  const loadFromFirestore = async (): Promise<{ success: boolean; message: string }> => {
+    if (!isFirebaseConfigured) {
+      return {
+        success: false,
+        message: 'Firebase is not configured in .env.'
+      };
+    }
+
+    try {
+      setIsCloudSyncing(true);
+      const [cList, hList, vList, tList, taskList, fList, setts] = await Promise.all([
+        getCattleFromFirestore(),
+        getHealthRecordsFromFirestore(),
+        getVaccinationsFromFirestore(),
+        getTransactionsFromFirestore(),
+        getTasksFromFirestore(),
+        getFeedInventoryFromFirestore(),
+        getFarmSettingsFromFirestore()
+      ]);
+
+      if (cList.length > 0) setCattleList(cList);
+      if (hList.length > 0) setHealthRecords(hList);
+      if (vList.length > 0) setVaccinations(vList);
+      if (tList.length > 0) setTransactions(tList);
+      if (taskList.length > 0) setTasks(taskList);
+      if (fList.length > 0) setFeedInventory(fList);
+      if (setts) setSettings(setts);
+
+      return {
+        success: true,
+        message: `Successfully loaded records from Cloud Firestore.`
+      };
+    } catch (err: any) {
+      return { success: false, message: err.message || 'Load failed.' };
+    } finally {
+      setIsCloudSyncing(false);
+    }
   };
 
   // Dynamically compute real dashboard metrics from live records
@@ -342,7 +521,10 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
       updateFeedStock,
       addFeedInventoryItem,
       metrics,
-      resetDemoData
+      resetDemoData,
+      isCloudSyncing,
+      syncWithFirestore,
+      loadFromFirestore
     }}>
       {children}
     </FarmContext.Provider>

@@ -2,11 +2,13 @@ import React, { useState } from 'react';
 import { 
   Stethoscope, ShieldAlert, Plus, AlertTriangle, 
   CheckCircle2, FileText, Calendar, Clock, 
-  UserCheck, Thermometer, ChevronRight, X 
+  UserCheck, Thermometer, ChevronRight, X,
+  Upload, ExternalLink, Paperclip, Loader2
 } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { useFarm } from '../context/FarmContext';
 import { HealthRecord } from '../types';
+import { uploadFileToStorage } from '../services/firestoreService';
 
 export const HealthVeterinary: React.FC = () => {
   const { language } = useLanguage();
@@ -26,6 +28,27 @@ export const HealthVeterinary: React.FC = () => {
   const [formRecovery, setFormRecovery] = useState<'under_treatment' | 'improved' | 'recovered'>('under_treatment');
   const [formMilkWithdrawal, setFormMilkWithdrawal] = useState('');
   const [formMeatWithdrawal, setFormMeatWithdrawal] = useState('');
+
+  // Prescription file upload state
+  const [uploadingDoc, setUploadingDoc] = useState(false);
+  const [docFileUrl, setDocFileUrl] = useState<string>('');
+  const [docFileName, setDocFileName] = useState<string>('');
+
+  const handleDocUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setDocFileName(file.name);
+    setUploadingDoc(true);
+    try {
+      const url = await uploadFileToStorage('vet_documents', file, `rx_${Date.now()}`);
+      setDocFileUrl(url);
+    } catch (err) {
+      console.error('Prescription upload failed:', err);
+    } finally {
+      setUploadingDoc(false);
+    }
+  };
 
   const handleSaveHealthRecord = (e: React.FormEvent) => {
     e.preventDefault();
@@ -47,7 +70,8 @@ export const HealthVeterinary: React.FC = () => {
       followUpDate: new Date(Date.now() + 5 * 86400000).toISOString().split('T')[0],
       recoveryStatus: formRecovery,
       milkWithdrawalUntil: formMilkWithdrawal || undefined,
-      meatWithdrawalUntil: formMeatWithdrawal || undefined
+      meatWithdrawalUntil: formMeatWithdrawal || undefined,
+      vetPrescriptionFileUrl: docFileUrl || undefined
     });
 
     setIsAddingRecord(false);
@@ -55,6 +79,8 @@ export const HealthVeterinary: React.FC = () => {
     setFormSymptoms('');
     setFormObservations('');
     setFormTreatment('');
+    setDocFileUrl('');
+    setDocFileName('');
   };
 
   return (
@@ -71,8 +97,8 @@ export const HealthVeterinary: React.FC = () => {
           </h2>
           <p className="text-xs md:text-sm text-stone-600 mt-1 max-w-2xl">
             {language === 'bn'
-              ? 'রেজিস্টার্ড ভেটেরিনারি সার্জনের চিকিৎসাপত্র, ওষুধের মাত্রা ও দুধ-মাংসের উইথড্রয়াল সময়সীমা কঠোরভাবে সংরক্ষণ করুন।'
-              : 'Record veterinarian-supervised clinical observations, prescribed medications, and mandatory food-safety withdrawal periods.'}
+              ? 'রেজিস্টার্ড ভেটেরিনারি সার্জনের চিকিৎসাপত্র, প্রেসক্রিপশন ফাইল ও দুধ-মাংসের উইথড্রয়াল সময়সীমা ক্লাউড স্টোরেজে সংরক্ষণ করুন।'
+              : 'Record veterinarian-supervised clinical observations, prescribed medications, Cloud prescription documents, and mandatory food-safety withdrawal periods.'}
           </p>
         </div>
 
@@ -98,53 +124,54 @@ export const HealthVeterinary: React.FC = () => {
         </p>
       </div>
 
-      {/* Health Records Log List */}
+      {/* Health Records Feed */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         {healthRecords.map(record => (
           <div
             key={record.id}
-            className="bg-white rounded-3xl border border-stone-200 p-6 shadow-soft space-y-4 hover:shadow-card transition flex flex-col justify-between"
+            className="bg-white rounded-3xl border border-stone-200 p-6 shadow-soft hover:shadow-card transition flex flex-col justify-between space-y-4"
           >
             <div className="space-y-3">
-              <div className="flex items-start justify-between pb-3 border-b border-stone-100">
+              {/* Record Top Bar */}
+              <div className="flex items-start justify-between">
                 <div>
-                  <div className="flex items-center space-x-2">
-                    <span className="font-bold text-stone-900 text-sm">{record.cattleTagId}</span>
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full capitalize
-                      ${record.recoveryStatus === 'recovered' ? 'bg-emerald-100 text-emerald-800' : record.recoveryStatus === 'improved' ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'}
-                    `}>
-                      {record.recoveryStatus.replace('_', ' ')}
-                    </span>
-                  </div>
-                  <p className="text-xs text-forest-800 font-semibold mt-0.5">{record.diseaseName || 'Clinical Examination'}</p>
+                  <span className="text-[10px] font-bold text-forest-700 bg-forest-50 px-2 py-0.5 rounded-full border border-forest-200">
+                    {record.cattleTagId}
+                  </span>
+                  <h3 className="font-bold text-stone-900 text-sm mt-1.5">
+                    {record.diseaseName || (language === 'bn' ? 'ক্লিনিক্যাল স্বাস্থ্য পরীক্ষা' : 'Clinical Examination')}
+                  </h3>
+                  <p className="text-[11px] text-stone-500">
+                    {record.examinationDate}
+                  </p>
                 </div>
 
-                <div className="text-right text-[11px] text-stone-400">
-                  <div className="flex items-center justify-end space-x-1">
-                    <Calendar size={12} />
-                    <span>{record.examinationDate}</span>
-                  </div>
+                <div className="text-right">
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                    record.recoveryStatus === 'recovered' 
+                      ? 'bg-emerald-100 text-emerald-800' 
+                      : record.recoveryStatus === 'improved'
+                      ? 'bg-blue-100 text-blue-800'
+                      : 'bg-amber-100 text-amber-800'
+                  }`}>
+                    {record.recoveryStatus.replace('_', ' ')}
+                  </span>
                   {record.bodyTemperatureF && (
-                    <div className="flex items-center justify-end space-x-1 text-amber-600 font-semibold mt-0.5">
-                      <Thermometer size={12} />
+                    <span className="block text-[11px] font-bold text-stone-600 mt-1 flex items-center justify-end space-x-0.5">
+                      <Thermometer size={12} className="text-rose-500" />
                       <span>{record.bodyTemperatureF}°F</span>
-                    </div>
+                    </span>
                   )}
                 </div>
               </div>
 
               {/* Symptoms Observed */}
-              <div>
-                <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider block mb-1">
-                  {language === 'bn' ? 'লক্ষণসমূহ (Symptoms):' : 'Symptoms Observed:'}
-                </span>
-                <div className="flex flex-wrap gap-1.5">
-                  {record.symptomsObserved.map((sym, idx) => (
-                    <span key={idx} className="px-2 py-0.5 rounded-lg bg-stone-100 text-stone-700 text-[11px]">
-                      {sym}
-                    </span>
-                  ))}
-                </div>
+              <div className="flex flex-wrap gap-1.5">
+                {record.symptomsObserved.map((s, idx) => (
+                  <span key={idx} className="px-2 py-0.5 rounded-lg bg-stone-100 text-stone-700 text-[10px] font-medium">
+                    {s}
+                  </span>
+                ))}
               </div>
 
               {/* Clinical Observations */}
@@ -161,6 +188,22 @@ export const HealthVeterinary: React.FC = () => {
                 </span>
                 <p className="leading-relaxed">{record.prescribedTreatment}</p>
               </div>
+
+              {/* Prescription Document Link if uploaded */}
+              {record.vetPrescriptionFileUrl && (
+                <div className="pt-1">
+                  <a
+                    href={record.vetPrescriptionFileUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-forest-50 hover:bg-forest-100 border border-forest-200 text-forest-800 text-[11px] font-semibold transition"
+                  >
+                    <FileText size={13} className="text-forest-700" />
+                    <span>{language === 'bn' ? 'প্রেসক্রিপশন নথি দেখুন (Cloud)' : 'View Prescription Document'}</span>
+                    <ExternalLink size={11} className="text-forest-600" />
+                  </a>
+                </div>
+              )}
 
               {/* Withdrawal Period Guardrail Pill */}
               {(record.milkWithdrawalUntil || record.meatWithdrawalUntil) && (
@@ -207,7 +250,7 @@ export const HealthVeterinary: React.FC = () => {
                 <select
                   value={formCattleId}
                   onChange={e => setFormCattleId(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-stone-300"
+                  className="w-full px-3 py-2 rounded-xl border border-stone-300 font-medium"
                 >
                   {cattleList.map(c => (
                     <option key={c.id} value={c.id}>
@@ -286,6 +329,31 @@ export const HealthVeterinary: React.FC = () => {
                 />
               </div>
 
+              {/* Prescription Document Upload to Firebase Storage */}
+              <div className="p-3 rounded-2xl bg-stone-50 border border-stone-200 space-y-1.5">
+                <label className="block text-stone-700 font-semibold text-[11px]">
+                  {language === 'bn' ? 'প্রেসক্রিপশন নথি / ছবি (Firebase Storage)' : 'Prescription Document / Photo (Firebase Storage)'}
+                </label>
+                <div className="flex items-center space-x-2">
+                  <label className="cursor-pointer inline-flex items-center space-x-1 px-3 py-1.5 rounded-xl border border-stone-300 bg-white hover:bg-stone-100 font-semibold text-stone-700 transition">
+                    <Paperclip size={13} className="text-forest-700" />
+                    <span>{uploadingDoc ? (language === 'bn' ? 'আপলোড হচ্ছে...' : 'Uploading...') : (language === 'bn' ? 'ফাইল নির্বাচন' : 'Attach Document')}</span>
+                    <input 
+                      type="file" 
+                      accept=".pdf,image/*" 
+                      onChange={handleDocUpload} 
+                      className="hidden" 
+                      disabled={uploadingDoc} 
+                    />
+                  </label>
+                  {docFileName && (
+                    <span className="text-[11px] text-forest-800 font-medium truncate max-w-[200px]">
+                      {docFileName} {docFileUrl && '✓'}
+                    </span>
+                  )}
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-stone-700 font-semibold mb-1">
@@ -318,13 +386,14 @@ export const HealthVeterinary: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setIsAddingRecord(false)}
-                  className="px-4 py-2 rounded-xl border border-stone-300"
+                  className="px-4 py-2 rounded-xl border border-stone-300 font-medium"
                 >
                   {language === 'bn' ? 'বাতিল' : 'Cancel'}
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-forest-700 text-white font-semibold"
+                  disabled={uploadingDoc}
+                  className="px-5 py-2 rounded-xl bg-forest-700 hover:bg-forest-800 disabled:opacity-50 text-white font-semibold transition"
                 >
                   {language === 'bn' ? 'সংরক্ষণ' : 'Save'}
                 </button>

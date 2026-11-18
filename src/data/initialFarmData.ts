@@ -18,7 +18,7 @@ export const INITIAL_FARM_SETTINGS: FarmSettings = {
   primaryBusinessModel: 'integrated',
   currency: 'BDT (৳)',
   createdDate: '2025-01-15',
-  supabaseConnected: false
+  firebaseConnected: false
 };
 
 export const INITIAL_CATTLE_LIST: Cattle[] = [

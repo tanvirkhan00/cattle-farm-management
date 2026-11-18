@@ -2,16 +2,20 @@ import React, { useState } from 'react';
 import { 
   Boxes, Plus, Search, Filter, Edit, Trash2, 
   Eye, Heart, Activity, Scale, ChevronRight, X, 
-  Check, Calendar, ArrowUpRight 
+  Check, Calendar, ArrowUpRight, Upload, Image as ImageIcon,
+  Loader2, ShieldAlert
 } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { useFarm } from '../context/FarmContext';
+import { useAuth } from '../context/AuthContext';
 import { Cattle, CattleHealthStatus, CattlePurpose } from '../types';
 import { BREEDS_DATABASE } from '../data/breedsData';
+import { uploadFileToStorage } from '../services/firestoreService';
 
 export const CattleManagement: React.FC = () => {
   const { language } = useLanguage();
   const { cattleList, addCattle, updateCattle, deleteCattle, addWeightRecord } = useFarm();
+  const { role } = useAuth();
 
   // Search & filter states
   const [searchTerm, setSearchTerm] = useState('');
@@ -24,6 +28,10 @@ export const CattleManagement: React.FC = () => {
   const [isAddingNew, setIsAddingNew] = useState(false);
   const [isAddingWeight, setIsAddingWeight] = useState<string | null>(null);
   const [newWeightVal, setNewWeightVal] = useState('450');
+
+  // Photo upload states
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
 
   // New Cattle Form state
   const [formData, setFormData] = useState({
@@ -39,6 +47,7 @@ export const CattleManagement: React.FC = () => {
     housingPen: 'Main Shed Pen 1',
     pregnancyStatus: 'not_pregnant' as const,
     healthStatus: 'healthy' as CattleHealthStatus,
+    photoUrl: '',
     notes: ''
   });
 
@@ -55,6 +64,24 @@ export const CattleManagement: React.FC = () => {
     return matchesSearch && matchesStatus && matchesPurpose;
   });
 
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const previewUrl = URL.createObjectURL(file);
+    setPhotoPreview(previewUrl);
+
+    setUploadingPhoto(true);
+    try {
+      const url = await uploadFileToStorage('cattle_photos', file, `${formData.tagId || 'cattle'}_${Date.now()}`);
+      setFormData(prev => ({ ...prev, photoUrl: url }));
+    } catch (err) {
+      console.error('Photo upload failed:', err);
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
   const handleSaveNew = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.tagId) return;
@@ -68,6 +95,7 @@ export const CattleManagement: React.FC = () => {
     });
 
     setIsAddingNew(false);
+    setPhotoPreview(null);
     setFormData({
       tagId: '',
       name: '',
@@ -81,8 +109,15 @@ export const CattleManagement: React.FC = () => {
       housingPen: 'Main Shed Pen 1',
       pregnancyStatus: 'not_pregnant',
       healthStatus: 'healthy',
+      photoUrl: '',
       notes: ''
     });
+  };
+
+  const handleDeleteCattle = (cattleId: string) => {
+    if (window.confirm(language === 'bn' ? 'আপনি কি এই গবাদিপশুর রেকর্ড মুছে ফেলতে চান?' : 'Are you sure you want to delete this cattle record?')) {
+      deleteCattle(cattleId);
+    }
   };
 
   const handleWeightSubmit = (cattleId: string) => {
@@ -125,8 +160,8 @@ export const CattleManagement: React.FC = () => {
           </h2>
           <p className="text-xs md:text-sm text-stone-600 mt-1">
             {language === 'bn' 
-              ? `খামারে বর্তমানে মোট ${cattleList.length}টি পশু নথিবদ্ধ আছে। প্রতিটি পশুর ওজন, টিকা ও স্বাস্থ্য ইতিহাস সংরক্ষিত।` 
-              : `Tracking ${cattleList.length} registered head with weight history, reproductive status, and health logs.`}
+              ? `খামারে বর্তমানে মোট ${cattleList.length}টি পশু নথিবদ্ধ আছে। প্রতিটি পশুর ওজন, ছবি, টিকা ও স্বাস্থ্য ইতিহাস সংরক্ষিত।` 
+              : `Tracking ${cattleList.length} registered head with weight history, cloud photos, reproductive status, and health logs.`}
           </p>
         </div>
 
@@ -218,22 +253,18 @@ export const CattleManagement: React.FC = () => {
                 {/* Metric Quick Stats */}
                 <div className="grid grid-cols-3 gap-2 pt-2 border-t border-stone-100 text-center text-xs">
                   <div className="p-2 rounded-xl bg-stone-50">
-                    <span className="text-[10px] text-stone-400 block">{language === 'bn' ? 'বর্তমান ওজন' : 'Weight'}</span>
-                    <strong className="text-stone-900 font-bold">{cattle.currentWeightKg} kg</strong>
+                    <span className="text-[10px] text-stone-400 block">{language === 'bn' ? 'ওজন' : 'Weight'}</span>
+                    <strong className="text-stone-800 text-xs">{cattle.currentWeightKg} kg</strong>
                   </div>
                   <div className="p-2 rounded-xl bg-stone-50">
-                    <span className="text-[10px] text-stone-400 block">{language === 'bn' ? 'বয়স' : 'Age'}</span>
-                    <strong className="text-stone-900 font-bold">{cattle.estimatedAgeMonths || 36}m</strong>
+                    <span className="text-[10px] text-stone-400 block">{language === 'bn' ? 'অবস্থা' : 'BCS'}</span>
+                    <strong className="text-stone-800 text-xs">{cattle.bodyConditionScore || 3.5}/5.0</strong>
                   </div>
                   <div className="p-2 rounded-xl bg-stone-50">
-                    <span className="text-[10px] text-stone-400 block">{language === 'bn' ? 'গর্ভধারণ' : 'Pregnancy'}</span>
-                    <strong className="text-stone-900 font-bold capitalize">{cattle.pregnancyStatus === 'confirmed' ? 'Yes' : 'No'}</strong>
+                    <span className="text-[10px] text-stone-400 block">{language === 'bn' ? 'স্থান' : 'Pen'}</span>
+                    <strong className="text-stone-800 text-xs truncate block">{cattle.housingPen || 'Pen 1'}</strong>
                   </div>
                 </div>
-
-                <p className="text-xs text-stone-500 line-clamp-2 leading-relaxed pt-1">
-                  {cattle.notes || (language === 'bn' ? 'কোনো বিশেষ নোট নেই।' : 'No notes recorded.')}
-                </p>
               </div>
             </div>
 
@@ -256,9 +287,9 @@ export const CattleManagement: React.FC = () => {
                   <Eye size={15} />
                 </button>
                 <button
-                  onClick={() => deleteCattle(cattle.id)}
+                  onClick={() => handleDeleteCattle(cattle.id)}
                   className="p-2 rounded-xl bg-white border border-stone-200 text-rose-600 hover:bg-rose-50 transition"
-                  title="Delete Cattle"
+                  title={language === 'bn' ? 'রেকর্ড মুছুন' : 'Delete Record'}
                 >
                   <Trash2 size={15} />
                 </button>
@@ -306,8 +337,12 @@ export const CattleManagement: React.FC = () => {
           <div className="bg-white rounded-3xl shadow-2xl border border-stone-200 w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 space-y-5 text-xs">
             <div className="flex items-center justify-between pb-3 border-b border-stone-100">
               <div className="flex items-center space-x-3">
-                <div className="w-10 h-10 rounded-2xl bg-forest-50 text-forest-700 flex items-center justify-center font-bold">
-                  🐄
+                <div className="w-12 h-12 rounded-2xl bg-stone-100 overflow-hidden flex items-center justify-center font-bold text-forest-700 border border-stone-200">
+                  {viewingCattle.photoUrl ? (
+                    <img src={viewingCattle.photoUrl} alt={viewingCattle.tagId} className="w-full h-full object-cover" />
+                  ) : (
+                    '🐄'
+                  )}
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-stone-900">{viewingCattle.tagId} - {viewingCattle.name || 'Unnamed'}</h3>
@@ -380,10 +415,10 @@ export const CattleManagement: React.FC = () => {
         </div>
       )}
 
-      {/* Add New Cattle Full Modal */}
+      {/* Add New Cattle Full Modal with Firebase Storage Image Upload */}
       {isAddingNew && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
-          <div className="bg-white rounded-3xl shadow-2xl border border-stone-200 w-full max-w-lg p-6 space-y-4 text-xs">
+          <div className="bg-white rounded-3xl shadow-2xl border border-stone-200 w-full max-w-lg max-h-[92vh] overflow-y-auto p-6 space-y-4 text-xs">
             <div className="flex items-center justify-between pb-3 border-b border-stone-100">
               <h3 className="font-bold text-stone-900 text-sm">
                 {language === 'bn' ? 'নতুন গবাদিপশু অন্তর্ভুক্তি' : 'Register New Cattle'}
@@ -394,6 +429,36 @@ export const CattleManagement: React.FC = () => {
             </div>
 
             <form onSubmit={handleSaveNew} className="space-y-3">
+              {/* Photo Upload Box */}
+              <div>
+                <label className="block text-stone-700 font-semibold mb-1">
+                  {language === 'bn' ? 'পশুর ছবি (Firebase Cloud Storage)' : 'Cattle Photo (Firebase Storage)'}
+                </label>
+                <div className="flex items-center space-x-3">
+                  <div className="w-16 h-16 rounded-2xl border-2 border-dashed border-stone-300 flex items-center justify-center overflow-hidden bg-stone-50">
+                    {photoPreview ? (
+                      <img src={photoPreview} alt="Preview" className="w-full h-full object-cover" />
+                    ) : (
+                      <ImageIcon size={20} className="text-stone-400" />
+                    )}
+                  </div>
+                  <div className="flex-1">
+                    <label className="cursor-pointer inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl border border-stone-300 bg-white hover:bg-stone-50 font-semibold text-stone-700 transition">
+                      <Upload size={13} className="text-forest-700" />
+                      <span>{uploadingPhoto ? (language === 'bn' ? 'আপলোড হচ্ছে...' : 'Uploading...') : (language === 'bn' ? 'ছবি নির্বাচন' : 'Choose Photo')}</span>
+                      <input 
+                        type="file" 
+                        accept="image/*" 
+                        onChange={handlePhotoUpload} 
+                        className="hidden" 
+                        disabled={uploadingPhoto} 
+                      />
+                    </label>
+                    <p className="text-[10px] text-stone-400 mt-1">PNG, JPG or WebP up to 10MB</p>
+                  </div>
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-stone-700 font-semibold mb-1">{language === 'bn' ? 'ট্যাগ আইডি *' : 'Tag ID *'}</label>
@@ -403,7 +468,7 @@ export const CattleManagement: React.FC = () => {
                     placeholder="e.g. BD-GZP-109"
                     value={formData.tagId}
                     onChange={e => setFormData({ ...formData, tagId: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl border border-stone-300"
+                    className="w-full px-3 py-2 rounded-xl border border-stone-300 font-medium"
                   />
                 </div>
                 <div>
@@ -413,7 +478,7 @@ export const CattleManagement: React.FC = () => {
                     placeholder="e.g. Lalmoni"
                     value={formData.name}
                     onChange={e => setFormData({ ...formData, name: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl border border-stone-300"
+                    className="w-full px-3 py-2 rounded-xl border border-stone-300 font-medium"
                   />
                 </div>
               </div>
@@ -481,13 +546,14 @@ export const CattleManagement: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setIsAddingNew(false)}
-                  className="px-4 py-2 rounded-xl border border-stone-300"
+                  className="px-4 py-2 rounded-xl border border-stone-300 font-medium"
                 >
                   {language === 'bn' ? 'বাতিল' : 'Cancel'}
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-forest-700 text-white font-semibold"
+                  disabled={uploadingPhoto}
+                  className="px-5 py-2 rounded-xl bg-forest-700 hover:bg-forest-800 disabled:opacity-50 text-white font-semibold transition"
                 >
                   {language === 'bn' ? 'সংরক্ষণ' : 'Save'}
                 </button>

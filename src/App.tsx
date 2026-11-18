@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { LanguageProvider } from './context/LanguageContext';
+import { AuthProvider } from './context/AuthContext';
 import { FarmProvider } from './context/FarmContext';
 import { Sidebar } from './components/layout/Sidebar';
 import { Header } from './components/layout/Header';
@@ -92,12 +93,13 @@ export const App: React.FC = () => {
   return (
     <BrowserRouter>
       <LanguageProvider>
-        <FarmProvider>
-          <AppContent />
-        </FarmProvider>
+        <AuthProvider>
+          <FarmProvider>
+            <AppContent />
+          </FarmProvider>
+        </AuthProvider>
       </LanguageProvider>
     </BrowserRouter>
   );
 };
-
 export default App;

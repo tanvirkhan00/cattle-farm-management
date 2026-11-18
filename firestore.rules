@@ -1,0 +1,97 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // =========================================================================
+    // SMART CATTLE FARM – FIRESTORE SECURITY RULES
+    // =========================================================================
+    // DIRECT ACCESS MODE (No Login Required)
+    // The application is currently operating in direct farm management mode.
+    // All farm collections allow read and write access without login.
+    // =========================================================================
+
+    match /{document=**} {
+      allow read, write: if true;
+    }
+
+    /* 
+    ============================================================================
+    OPTIONAL: ROLE-BASED ACCESS CONTROL (RBAC) FOR LATER USE
+    When you are ready to enable the Firebase Authentication login system later,
+    replace the open rule above with the following RBAC block:
+    ============================================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() && (
+        getUserData().role == 'admin' || 
+        request.auth.token.email.matches('.*admin.*') ||
+        request.auth.token.email.matches('.*owner.*')
+      );
+    }
+    
+    function isEmployee() {
+      return isAuthenticated() && (
+        getUserData().role == 'employee' || 
+        isAdmin()
+      );
+    }
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+    }
+
+    match /farm_settings/{settingId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /cattle/{cattleId} {
+      allow read: if isEmployee();
+      allow create, update: if isEmployee();
+      allow delete: if isAdmin();
+    }
+    
+    match /cattle_weights/{weightId} {
+      allow read, write: if isEmployee();
+    }
+
+    match /health_records/{recordId} {
+      allow read, write: if isEmployee();
+    }
+
+    match /vaccinations/{vaccineId} {
+      allow read, write: if isEmployee();
+    }
+
+    match /financial_transactions/{transactionId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /daily_tasks/{taskId} {
+      allow read, write: if isEmployee();
+    }
+
+    match /feed_inventory/{feedId} {
+      allow read: if isEmployee();
+      allow write: if isEmployee();
+    }
+
+    match /biosecurity/{bioId} {
+      allow read, write: if isEmployee();
+    }
+
+    match /ai_conversations/{convId} {
+      allow read, write: if isEmployee();
+    }
+    */
+  }
+}

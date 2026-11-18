@@ -1,0 +1,40 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // =========================================================================
+    // SMART CATTLE FARM – STORAGE SECURITY RULES
+    // =========================================================================
+    // DIRECT ACCESS MODE (No Login Required)
+    // Allows cattle photos and veterinary prescription uploads without login,
+    // while enforcing safe file size limits (≤15MB).
+    // =========================================================================
+
+    function isUnderMaxSize() {
+      return request.resource.size < 15 * 1024 * 1024; // 15MB limit
+    }
+
+    // Cattle Photos
+    match /cattle_photos/{allPaths=**} {
+      allow read: if true;
+      allow write: if isUnderMaxSize();
+    }
+
+    // Veterinary Prescriptions & Medical Documents
+    match /vet_documents/{allPaths=**} {
+      allow read: if true;
+      allow write: if isUnderMaxSize();
+    }
+
+    // Knowledge Center Research PDFs
+    match /knowledge_pdfs/{allPaths=**} {
+      allow read: if true;
+      allow write: if isUnderMaxSize();
+    }
+
+    // Fallback
+    match /{allPaths=**} {
+      allow read, write: if isUnderMaxSize();
+    }
+  }
+}
